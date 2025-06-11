@@ -12,6 +12,11 @@ Download the RSA_API: http://www.tek.com/model/rsa306-software
 Download the RSA_API Documentation:
 http://www.tek.com/spectrum-analyzer/rsa306-manual-6
 """
+import os 
+import sys
+
+rsa_dll_path = r"C:\Tektronix\RSA_API\lib\x64"
+os.add_dll_directory(rsa_dll_path)
 
 import unittest
 from time import sleep

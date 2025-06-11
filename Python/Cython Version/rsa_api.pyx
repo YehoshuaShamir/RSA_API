@@ -20,13 +20,13 @@ def err_check(rs):
 # Structs and Named Enums
 ##########################################################
 
-cpdef enum FREQREF_SOURCE:
+cdef enum FREQREF_SOURCE:
     FRS_INTERNAL = 0
     FRS_EXTREF = 1
     FRS_GNSS = 2
     FRS_USER = 3
 
-cpdef enum GFR_MODE:
+cdef enum GFR_MODE:
     GFRM_OFF = 0
     GFRM_FREQTRACK = 2
     GFRM_PHASETRACK = 3
@@ -984,7 +984,7 @@ def DPX_WaitForDataReady_py(timeoutMsec=50):
 
 
 def DPX_GetFrameBuffer_py():
-    cpdef DPX_FrameBuffer fb
+    cdef DPX_FrameBuffer fb
     err_check(DPX_GetFrameBuffer(&fb))
     err_check(DPX_FinishFrameBuffer())
 
@@ -1241,7 +1241,7 @@ def IFSTREAM_GetActiveStatus_py():
 
 
 def IFSTREAM_GetIFData_py():
-    cpdef np.ndarray data = np.empty(shape=(130848), dtype=np.int16, order='c')
+    cdef np.ndarray data = np.empty(shape=(130848), dtype=np.int16, order='c')
     cdef int dataLen
     cdef IFSTRMDATAINFO dataInfo
     err_check(IFSTREAM_GetIFData(<int16_t *> data.data, &dataLen, &dataInfo))

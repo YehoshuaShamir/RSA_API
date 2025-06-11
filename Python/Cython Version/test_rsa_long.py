@@ -17,6 +17,11 @@ http://www.tek.com/spectrum-analyzer/rsa306-manual-6
 """An external 10 MHz reference signal, a Trimble GPS+Beidou antenna
 (P/N 100229-52 A), and a -5 dBm pulsed CW signal centered at 1 GHz
 with a pulse width of 100 us and PRI of 1 ms is required for this test."""
+import os 
+import sys
+
+rsa_dll_path = r"C:\Tektronix\RSA_API\lib\x64"
+os.add_dll_directory(rsa_dll_path)
 
 import unittest
 from time import sleep
