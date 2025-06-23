@@ -52,10 +52,20 @@ except ImportError:
 
         @staticmethod
         def SPECTRUM_GetSettings_py():
-            return {
-                'actualStartFreq': 2.4e9,
-                'actualStopFreq': 2.43e9
-            }
+            # Return frequency range based on the selected band for correct testing
+            # Use a global or class variable to track band selection
+            # Fallback to 2.4GHz if not set
+            band = getattr(MockRSA, 'current_band', '2.4GHz')
+            if band == '5GHz':
+                return {
+                    'actualStartFreq': 5.15e9,
+                    'actualStopFreq': 5.825e9
+                }
+            else:
+                return {
+                    'actualStartFreq': 2.4e9,
+                    'actualStopFreq': 2.4835e9
+                }
 
         @staticmethod
         def SPECTRUM_AcquireTrace_py():
@@ -98,7 +108,9 @@ class SpectrumAnalyzerGUI(QWidget):
         self.wifi_masks = {
             '2.4GHz': {
                 'channels': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-                'center_freqs': np.arange(2412e6, 2484e6, 5e6),  # 2.412GHz to 2.484GHz in 5MHz steps
+                'center_freqs': [
+                    2412e6, 2417e6, 2422e6, 2427e6, 2432e6, 2437e6, 2442e6, 2447e6, 2452e6, 2457e6, 2462e6, 2467e6, 2472e6
+                ],  # Regulatory 2.4GHz WiFi center frequencies
                 'mask': {
                     'channel_width': 22e6,  # 22MHz channel width
                     'thresholds': {
@@ -110,7 +122,11 @@ class SpectrumAnalyzerGUI(QWidget):
             },
             '5GHz': {
                 'channels': list(range(36, 64, 4)) + list(range(100, 141, 4)),
-                'center_freqs': np.arange(5180e6, 5825e6, 20e6),  # 5.180GHz to 5.825GHz in 20MHz steps
+                'center_freqs': [
+                    5180e6, 5200e6, 5220e6, 5240e6, 5260e6, 5280e6, 5300e6, 5320e6,
+                    5500e6, 5520e6, 5540e6, 5560e6, 5580e6, 5600e6, 5620e6, 5640e6,
+                    5660e6, 5680e6, 5700e6
+                ],  # Regulatory 5GHz WiFi center frequencies
                 'mask': {
                     'channel_width': 20e6,  # 20MHz channel width
                     'thresholds': {
@@ -205,10 +221,16 @@ class SpectrumAnalyzerGUI(QWidget):
         self.stop_button.clicked.connect(self.stop_acquisition)
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.clear_hold)
+
+        # Continue button (for pause-on-violation)
+        self.continue_button = QPushButton("Continue")
+        self.continue_button.setEnabled(False)
+        self.continue_button.clicked.connect(self.continue_acquisition)
         
         self.config_layout.addWidget(self.start_button)
         self.config_layout.addWidget(self.stop_button)
         self.config_layout.addWidget(self.clear_button)
+        self.config_layout.addWidget(self.continue_button)
 
         # Create horizontal layout for plot and data display
         plot_layout = QHBoxLayout()
@@ -227,19 +249,32 @@ class SpectrumAnalyzerGUI(QWidget):
         self.peak_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.peak_table.setSelectionMode(QTableWidget.NoSelection)
         
-        # Set up scroll area
+        # Set up scroll area for peak table
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setWidget(self.peak_table)
         plot_layout.addWidget(self.scroll_area)
-        
+
+        # --- Per-Channel Peak Table (additional view) ---
+        self.channel_peak_table = QTableWidget(13, 3)  # Max 13 channels (2.4GHz)
+        self.channel_peak_table.setHorizontalHeaderLabels(['Channel', 'Center Freq (MHz)', 'Peak Level (dBm)'])
+        self.channel_peak_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.channel_peak_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.channel_peak_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.channel_peak_table.setSelectionMode(QTableWidget.NoSelection)
+        # Place below the main table
+        self.channel_peak_scroll = QScrollArea()
+        self.channel_peak_scroll.setWidgetResizable(True)
+        self.channel_peak_scroll.setWidget(self.channel_peak_table)
+        plot_layout.addWidget(self.channel_peak_scroll)
+
         self.spectrum_layout.addLayout(plot_layout)
 
         # Initialize plot elements
         self.trace_length = 801
         self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)  # Default to 2.4GHz band
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
-        self.mask_threshold = -40
+        self.mask_threshold = -45
 
         self.line_live, = self.ax.plot(self.freqs / 1e6, np.zeros_like(self.freqs), label="Live Trace")
         self.line_max, = self.ax.plot(self.freqs / 1e6, self.max_hold, label="Max Hold", linestyle='--', color='orange')
@@ -290,8 +325,8 @@ class SpectrumAnalyzerGUI(QWidget):
         self.window_label = QLabel("Window Type:")
         self.window_combo = QComboBox()
         self.window_combo.addItems([
-            "Rectangular",
             "Hamming",
+            "Rectangular",
             "Hanning",
             "Blackman",
             "Kaiser"
@@ -304,7 +339,6 @@ class SpectrumAnalyzerGUI(QWidget):
         self.units_combo.addItems([
             "dBm",
             "dBmV",
-            "dBuV",
             "V",
             "W"
         ])
@@ -414,19 +448,25 @@ class SpectrumAnalyzerGUI(QWidget):
 
     def get_channel_from_freq(self, freq):
         """
-        Get WiFi channel number from frequency.
+        Get WiFi channel number from frequency: always return the closest channel in the correct band.
+        Robust against index errors.
         """
-        if self.current_channel == "2.4GHz":
-            # 2.4GHz channels are 5MHz apart, starting at 2412MHz
-            channel = int((freq - 2412e6) / 5e6) + 1
-            if 1 <= channel <= 13:
-                return channel
-        else:  # 5GHz
-            # 5GHz channels are 20MHz apart, starting at 5180MHz
-            channel = int((freq - 5180e6) / 20e6) + 36
-            if 36 <= channel <= 140:
-                return channel
-        return None
+        if freq < 3e9:
+            centers = self.wifi_masks["2.4GHz"]["center_freqs"]
+            channels = self.wifi_masks["2.4GHz"]["channels"]
+        else:
+            centers = self.wifi_masks["5GHz"]["center_freqs"]
+            channels = self.wifi_masks["5GHz"]["channels"]
+        if not centers or not channels:
+            print("[DEBUG] No channel centers or channel list available!")
+            return None
+        min_idx = int(np.argmin([abs(freq - cf) for cf in centers]))
+        if min_idx >= len(channels):
+            print(f"[DEBUG] Channel index {min_idx} out of range for channels list of length {len(channels)}!")
+            return None
+        return channels[min_idx]
+
+
 
     def update_reference_level(self, value):
         """Update reference level setting."""
@@ -473,10 +513,10 @@ class SpectrumAnalyzerGUI(QWidget):
     def update_window_type(self, value):
         """Update window type setting."""
         window_map = {
-            "Rectangular": SpectrumWindows.SpectrumWindow_Rectangular,
-            "Hamming": SpectrumWindows.SpectrumWindow_Hamming,
-            "Hanning": SpectrumWindows.SpectrumWindow_Hanning,
-            "Blackman": SpectrumWindows.SpectrumWindow_Blackman,
+            "Rectangular": SpectrumWindows.SpectrumWindow_Rectangle,
+            "Hamming": SpectrumWindows.SpectrumWindow_Hann,
+            "Hanning": SpectrumWindows.SpectrumWindow_Hann,
+            "Blackman": SpectrumWindows.SpectrumWindow_BlackmanHarris,
             "Kaiser": SpectrumWindows.SpectrumWindow_Kaiser
         }
         SPECTRUM_SetSettings_py(
@@ -484,14 +524,24 @@ class SpectrumAnalyzerGUI(QWidget):
             verticalUnit=self.get_vertical_units()
         )
 
+    def get_vertical_units(self):
+        """Return the current vertical unit enum for SPECTRUM_SetSettings_py."""
+        units_map = {
+            "dBm": SpectrumVerticalUnits.SpectrumVerticalUnit_dBm,
+            "dBmV": SpectrumVerticalUnits.SpectrumVerticalUnit_dBmV,
+            "V": SpectrumVerticalUnits.SpectrumVerticalUnit_Volt,
+            "W": SpectrumVerticalUnits.SpectrumVerticalUnit_Watt
+        }
+        value = self.units_combo.currentText()
+        return units_map.get(value, SpectrumVerticalUnits.SpectrumVerticalUnit_dBm)
+
     def update_vertical_units(self, value):
         """Update vertical units setting."""
         units_map = {
             "dBm": SpectrumVerticalUnits.SpectrumVerticalUnit_dBm,
             "dBmV": SpectrumVerticalUnits.SpectrumVerticalUnit_dBmV,
-            "dBuV": SpectrumVerticalUnits.SpectrumVerticalUnit_dBuV,
-            "V": SpectrumVerticalUnits.SpectrumVerticalUnit_V,
-            "W": SpectrumVerticalUnits.SpectrumVerticalUnit_W
+            "V": SpectrumVerticalUnits.SpectrumVerticalUnit_Volt,
+            "W": SpectrumVerticalUnits.SpectrumVerticalUnit_Watt
         }
         SPECTRUM_SetSettings_py(
             verticalUnit=units_map[value]
@@ -504,6 +554,7 @@ class SpectrumAnalyzerGUI(QWidget):
         Update GUI settings based on selected WiFi channel.
         """
         self.current_channel = channel
+
         if channel == "2.4GHz":
             # 2.4GHz WiFi band (2.400 - 2.4835 GHz)
             self.center_input.setValue(2.4415)  # Center of 2.4GHz band
@@ -521,13 +572,14 @@ class SpectrumAnalyzerGUI(QWidget):
         # Update plot axes
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.canvas.draw()
-        self.line_marker.remove()
+        if hasattr(self, 'line_marker'):
+            self.line_marker.remove()
         self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
         
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.ax.set_title(f"Live Spectrum - {channel} Band")
         self.canvas.draw()
-    
+
     def start_acquisition(self):
         """
         Start spectrum acquisition with user-defined settings.
@@ -552,9 +604,11 @@ class SpectrumAnalyzerGUI(QWidget):
             verticalUnit=SpectrumVerticalUnits.SpectrumVerticalUnit_dBm
         )
 
-        # Get settings and initialize plot
-        settings = SPECTRUM_GetSettings_py()
-        self.freqs = np.linspace(settings['actualStartFreq'], settings['actualStopFreq'], self.trace_length)
+        # Always set self.freqs based on selected band, not what the device returns
+        if self.current_channel == "2.4GHz":
+            self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)
+        else:
+            self.freqs = np.linspace(5.15e9, 5.825e9, self.trace_length)
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
         
         # Initialize plot elements
@@ -576,29 +630,13 @@ class SpectrumAnalyzerGUI(QWidget):
         self.start_time = time.time()
         self.timer.start(250)
 
-        SPECTRUM_AcquireTrace_py()
 
-        settings = SPECTRUM_GetSettings_py()
-        self.freqs = np.linspace(settings['actualStartFreq'], settings['actualStopFreq'], self.trace_length)
-        self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
-        self.mask_threshold = -40
-
-        self.ax.clear()
-        self.line_live, = self.ax.plot(self.freqs / 1e6, np.zeros_like(self.freqs), label="Live Trace")
-        self.line_max, = self.ax.plot(self.freqs / 1e6, self.max_hold, label="Max Hold", linestyle='--', color='orange')
-        self.line_mask = self.ax.hlines(self.mask_threshold, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='red', linestyles='dotted', label="Mask Threshold")
-        self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
-
-        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
-        self.ax.set_ylim(-130, -20)
-        self.ax.set_xlabel("Frequency (MHz)")
-        self.ax.set_ylabel("Power (dBm)")
-        self.ax.set_title("Live Spectrum with Max Hold & Trigger")
-        self.ax.legend()
-        self.canvas.draw()
-
-        self.start_time = time.time()
+    def continue_acquisition(self):
+        """
+        Resume acquisition after pause (mask violation).
+        """
         self.timer.start(250)
+        self.continue_button.setEnabled(False)
 
     def stop_acquisition(self):
         """
@@ -635,16 +673,19 @@ class SpectrumAnalyzerGUI(QWidget):
             self.line_max.set_ydata(self.max_hold)
             
         # Signal analysis
+        print(f"[DEBUG] Band: {self.current_channel}, Freq range: {self.freqs[0]/1e6:.1f}-{self.freqs[-1]/1e6:.1f} MHz")
         if np.any(trace > -100):  # Signal is present if any point is above -100 dBm
             self.current_signal_level = np.max(trace)
             peak_index = np.argmax(trace)
             peak_freq = self.freqs[peak_index]
-            self.current_channel = self.get_channel_from_freq(peak_freq)
+            # Do not overwrite self.current_channel here; use the selected band
+            channel_for_title = self.get_channel_from_freq(peak_freq)
+            print(f"[DEBUG] Peak freq: {peak_freq/1e6:.2f} MHz, Channel: {channel_for_title}")
             
             # Update title with signal info
             title = f"Live Spectrum - Signal Level: {self.current_signal_level:.1f} dBm"
-            if self.current_channel:
-                title += f" (Channel {self.current_channel})"
+            if channel_for_title:
+                title += f" (Channel {channel_for_title})"
             title_color = 'black'
         else:
             title = "No Signal Detected"
@@ -652,19 +693,72 @@ class SpectrumAnalyzerGUI(QWidget):
             self.current_signal_level = None
             self.current_channel = None
         
-        # Check WiFi mask violations
+        # Check for mask violations
         violations = self.check_wifi_mask_violations(trace)
         if violations:
-            title = "Mask Violation Detected!"
-            title_color = 'red'
-            
-            # Update mask violation indicators
-            for freq, level in violations.items():
-                # Add red markers at violation points
-                self.ax.scatter([freq/1e6], [level], color='red', zorder=10)
-        
-        self.ax.set_title(title, color=title_color)
+            self.ax.set_title(f"Live Spectrum with Max Hold & Trigger\nMASK VIOLATION!")
+            self.timer.stop()  # Pause acquisition on violation
+            self.continue_button.setEnabled(True)
+        else:
+            self.ax.set_title("Live Spectrum with Max Hold & Trigger")
+            self.continue_button.setEnabled(False)
+
+        # --- Add violation markers (red dots) ---
+        # Remove previous violation markers if they exist
+        if hasattr(self, 'violation_markers'):
+            for marker in self.violation_markers:
+                marker.remove()
+        self.violation_markers = []
+        if violations:
+            v_freqs = [f/1e6 for f in violations.keys()]
+            v_powers = list(violations.values())
+            marker = self.ax.scatter(v_freqs, v_powers, color='red', marker='o', label='Mask Violation')
+            self.violation_markers.append(marker)
+            # Keep legend updated
+            handles, labels = self.ax.get_legend_handles_labels()
+            if 'Mask Violation' not in labels:
+                self.ax.legend()
+        else:
+            # Remove 'Mask Violation' from legend if no violations
+            handles, labels = self.ax.get_legend_handles_labels()
+            if 'Mask Violation' in labels:
+                idx = labels.index('Mask Violation')
+                handles.pop(idx)
+                labels.pop(idx)
+                self.ax.legend(handles, labels)
+
+        # Update plot
         self.canvas.draw()
+
+        # --- Update per-channel peak table (additional view) ---
+        # Determine current band
+        if self.freqs[0] < 3e9:
+            band = '2.4GHz'
+        else:
+            band = '5GHz'
+        channels = self.wifi_masks[band]['channels']
+        centers = self.wifi_masks[band]['center_freqs']
+        if band == '2.4GHz':
+            channel_width = 22e6
+        else:
+            channel_width = 20e6
+        for i, (ch, cf) in enumerate(zip(channels, centers)):
+            # Find indices within channel boundaries (center +/- half channel width)
+            ch_min = cf - channel_width / 2
+            ch_max = cf + channel_width / 2
+            indices = np.where((self.freqs >= ch_min) & (self.freqs <= ch_max))[0]
+            if len(indices) > 0:
+                peak_val = np.max(trace[indices])
+            else:
+                peak_val = float('nan')
+            self.channel_peak_table.setItem(i, 0, QTableWidgetItem(str(ch)))
+            self.channel_peak_table.setItem(i, 1, QTableWidgetItem(f"{cf/1e6:.1f}"))
+            self.channel_peak_table.setItem(i, 2, QTableWidgetItem(f"{peak_val:.1f}" if not np.isnan(peak_val) else '-'))
+        # Clear remaining rows if fewer than current table rows
+        for i in range(len(channels), self.channel_peak_table.rowCount()):
+            for col in range(3):
+                self.channel_peak_table.setItem(i, col, QTableWidgetItem("-"))
+
         
         # Update peak information and marker
         if np.any(trace > -100):
