@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QColor
 from PyQt5.QtCore import QTimer, Qt
-import time
+from PyQt5.QtCore import QTimer
 
 try:
     # Try to import RSA API for normal operation
@@ -98,25 +98,25 @@ class SpectrumAnalyzerGUI(QWidget):
         self.wifi_masks = {
             '2.4GHz': {
                 'channels': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-                'center_freqs': np.arange(2412e6, 2484e6, 5e6),  # 2.412GHz to 2.484GHz in 5MHz steps
+                'center_freqs': np.arange(2412e6, 2484e6, 5e6),
                 'mask': {
-                    'channel_width': 22e6,  # 22MHz channel width
+                    'channel_width': 22e6,
                     'thresholds': {
-                        'center': -40,  # Center of channel
-                        'adjacent': -50,  # Adjacent channels
-                        'far': -60  # Far channels
+                        'center': -40,
+                        'adjacent': -50,
+                        'far': -60
                     }
                 }
             },
             '5GHz': {
                 'channels': list(range(36, 64, 4)) + list(range(100, 141, 4)),
-                'center_freqs': np.arange(5180e6, 5825e6, 20e6),  # 5.180GHz to 5.825GHz in 20MHz steps
+                'center_freqs': np.arange(5180e6, 5825e6, 20e6),
                 'mask': {
-                    'channel_width': 20e6,  # 20MHz channel width
+                    'channel_width': 20e6,
                     'thresholds': {
-                        'center': -40,  # Center of channel
-                        'adjacent': -50,  # Adjacent channels
-                        'far': -60  # Far channels
+                        'center': -40,
+                        'adjacent': -50,
+                        'far': -60
                     }
                 }
             }
@@ -130,7 +130,6 @@ class SpectrumAnalyzerGUI(QWidget):
         self.setGeometry(100, 100, 1000, 600)
 
         # Initialize RSA device and spectrum analyzer
-        # This establishes connection with the hardware and sets up basic spectrum settings
         DEVICE_Connect_py()
         DEVICE_Run_py()
         SPECTRUM_SetEnable_py(True)
@@ -162,31 +161,32 @@ class SpectrumAnalyzerGUI(QWidget):
         self.channel_combo.addItems(["2.4GHz", "5GHz"])
         self.channel_combo.currentTextChanged.connect(self.update_channel_settings)
         
-        # Center Frequency (will be updated based on channel selection)
+        # Center Frequency
         self.center_label = QLabel("Center Frequency (GHz):")
         self.center_input = QDoubleSpinBox()
         self.center_input.setRange(0, 10)
         self.center_input.setValue(2.4415)
         
-        # Span (will be updated based on channel selection)
+        # Span
         self.span_label = QLabel("Span (MHz):")
         self.span_input = QDoubleSpinBox()
         self.span_input.setRange(0, 1000)
         self.span_input.setValue(83.5)
         
-        # Duration (will be updated based on channel selection)
+        # Duration
         self.duration_label = QLabel("Duration (s):")
         self.duration_input = QDoubleSpinBox()
         self.duration_input.setRange(1, 120)
         self.duration_input.setValue(30)
 
-        # Create table to display peak information
-        self.peak_table = QTableWidget(3, 2)
-        self.peak_table.setHorizontalHeaderLabels(['Parameter', 'Value'])
-        self.peak_table.setVerticalHeaderLabels(['Peak Level', 'Peak Frequency', 'Channel'])
+        # Create scrollable table for peak data
+        self.peak_table = QTableWidget(20, 4)
+        self.peak_table.setHorizontalHeaderLabels(['Peak Level (dBm)', 'Frequency (MHz)', 'Channel', 'Time'])
+        self.peak_table.setVerticalHeaderLabels([str(i) for i in range(1, 21)])
         self.peak_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.peak_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.peak_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.peak_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.peak_table.setSelectionMode(QTableWidget.NoSelection)
         
         # Add channel selection to layout
         self.config_layout.addWidget(self.channel_label)
@@ -218,15 +218,6 @@ class SpectrumAnalyzerGUI(QWidget):
         self.canvas = FigureCanvas(self.fig)
         plot_layout.addWidget(self.canvas)
         
-        # Create scrollable table for peak data
-        self.peak_table = QTableWidget(20, 4)  # 20 rows for scrolling, 4 columns
-        self.peak_table.setHorizontalHeaderLabels(['Peak Level (dBm)', 'Frequency (MHz)', 'Channel', 'Time'])
-        self.peak_table.setVerticalHeaderLabels([str(i) for i in range(1, 21)])
-        self.peak_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.peak_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.peak_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.peak_table.setSelectionMode(QTableWidget.NoSelection)
-        
         # Set up scroll area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -237,7 +228,7 @@ class SpectrumAnalyzerGUI(QWidget):
 
         # Initialize plot elements
         self.trace_length = 801
-        self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)  # Default to 2.4GHz band
+        self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
         self.mask_threshold = -40
 
@@ -330,7 +321,7 @@ class SpectrumAnalyzerGUI(QWidget):
         self.start_time = None
         self.triggered = False
         
-        # Store default settings
+        # Default settings
         self.default_settings = {
             'ref_level': -60,
             'rbw': 1,
@@ -342,75 +333,6 @@ class SpectrumAnalyzerGUI(QWidget):
         
         # Default channel settings
         self.current_channel = "2.4GHz"
-
-    def setup_wifi_mask(self):
-        """
-        Set up WiFi standard mask based on current band.
-        """
-        if self.current_channel == "2.4GHz":
-            mask = self.wifi_masks["2.4GHz"]
-        else:
-            mask = self.wifi_masks["5GHz"]
-        
-        # Remove existing mask lines
-        if hasattr(self, 'mask_lines'):
-            for line in self.mask_lines:
-                line.remove()
-        
-        # Create new mask lines
-        self.mask_lines = []
-        
-        # Center channel mask
-        center_line = self.ax.hlines(mask['mask']['thresholds']['center'],
-                                   self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
-                                   colors='red', linestyles='dotted', 
-                                   label="Center Channel Mask")
-        self.mask_lines.append(center_line)
-        
-        # Adjacent channel mask
-        adjacent_line = self.ax.hlines(mask['mask']['thresholds']['adjacent'],
-                                     self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
-                                     colors='orange', linestyles='dotted',
-                                     label="Adjacent Channel Mask")
-        self.mask_lines.append(adjacent_line)
-        
-        # Far channel mask
-        far_line = self.ax.hlines(mask['mask']['thresholds']['far'],
-                                self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
-                                colors='green', linestyles='dotted',
-                                label="Far Channel Mask")
-        self.mask_lines.append(far_line)
-        
-        # Add channel markers
-        self.channel_markers = []
-        for freq in mask['center_freqs']:
-            marker = self.ax.axvline(x=freq/1e6, color='purple', linestyle='dotted', alpha=0.5)
-            self.channel_markers.append(marker)
-        
-        self.ax.legend()
-        self.canvas.draw()
-
-    def check_wifi_mask_violations(self, trace):
-        """
-        Check for WiFi mask violations and return violation points.
-        """
-        violations = {}
-        
-        if self.current_channel == "2.4GHz":
-            mask = self.wifi_masks["2.4GHz"]
-        else:
-            mask = self.wifi_masks["5GHz"]
-        
-        # Check each channel
-        for freq, power in zip(self.freqs, trace):
-            if power > mask['mask']['thresholds']['center']:
-                violations[freq] = power
-            elif power > mask['mask']['thresholds']['adjacent']:
-                violations[freq] = power
-            elif power > mask['mask']['thresholds']['far']:
-                violations[freq] = power
-        
-        return violations
 
     def get_channel_from_freq(self, freq):
         """
@@ -437,7 +359,7 @@ class SpectrumAnalyzerGUI(QWidget):
     def update_rbw(self, value):
         """Update resolution bandwidth setting."""
         SPECTRUM_SetSettings_py(
-            rbw=value * 1e3,  # Convert kHz to Hz
+            rbw=value * 1e3,
             enableVBW=True,
             vbw=self.vbw_input.value() * 1e3,
             traceLength=self.trace_length_input.value(),
@@ -449,7 +371,7 @@ class SpectrumAnalyzerGUI(QWidget):
         """Update video bandwidth setting."""
         SPECTRUM_SetSettings_py(
             enableVBW=True,
-            vbw=value * 1e3,  # Convert kHz to Hz
+            vbw=value * 1e3,
             traceLength=self.trace_length_input.value(),
             window=self.get_window_type(),
             verticalUnit=self.get_vertical_units()
@@ -499,106 +421,114 @@ class SpectrumAnalyzerGUI(QWidget):
         self.ax.set_ylabel(f"Power ({value})")
         self.canvas.draw()
 
+    def setup_wifi_mask(self):
+        """
+        Set up WiFi standard mask based on current band.
+        """
+        if self.current_channel == "2.4GHz":
+            mask = self.wifi_masks["2.4GHz"]
+        else:
+            mask = self.wifi_masks["5GHz"]
+        
+        # Remove existing mask lines
+        if hasattr(self, 'mask_lines'):
+            for line in self.mask_lines:
+                line.remove()
+        
+        # Create new mask lines
+        self.mask_lines = []
+        
+        # Center channel mask
+        center_line = self.ax.hlines(mask['mask']['thresholds']['center'],
+                                   self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
+                                   colors='red', linestyles='dotted', 
+                                   label="Center Channel Mask")
+        self.mask_lines.append(center_line)
+        
+        # Adjacent channel mask
+        adjacent_line = self.ax.hlines(mask['mask']['thresholds']['adjacent'],
+                                     self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
+                                     colors='orange', linestyles='dotted',
+                                     label="Adjacent Channel Mask")
+        self.mask_lines.append(adjacent_line)
+        
+        # Far channel mask
+        far_line = self.ax.hlines(mask['mask']['thresholds']['far'],
+                                self.freqs[0] / 1e6, self.freqs[-1] / 1e6,
+                                colors='green', linestyles='dotted',
+                                label="Far Channel Mask")
+        self.mask_lines.append(far_line)
+        
+        self.ax.legend()
+        self.canvas.draw()
+
+    def check_wifi_mask_violations(self, trace):
+        """
+        Check for WiFi mask violations and return violation points.
+        """
+        if self.current_channel == "2.4GHz":
+            mask = self.wifi_masks["2.4GHz"]
+        else:
+            mask = self.wifi_masks["5GHz"]
+        
+        violations = []
+        for i, power in enumerate(trace):
+            freq = self.freqs[i]
+            channel = self.get_channel_from_freq(freq)
+            
+            if channel:
+                if power > mask['mask']['thresholds']['center']:
+                    violations.append((freq, power, 'center'))
+                elif power > mask['mask']['thresholds']['adjacent']:
+                    violations.append((freq, power, 'adjacent'))
+                elif power > mask['mask']['thresholds']['far']:
+                    violations.append((freq, power, 'far'))
+        
+        return violations
+
     def update_channel_settings(self, channel):
         """
         Update GUI settings based on selected WiFi channel.
         """
         self.current_channel = channel
+        
         if channel == "2.4GHz":
-            # 2.4GHz WiFi band (2.400 - 2.4835 GHz)
-            self.center_input.setValue(2.4415)  # Center of 2.4GHz band
-            self.span_input.setValue(83.5)     # Full 2.4GHz band
+            self.center_input.setValue(2.4415)
+            self.span_input.setValue(83.5)
             self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)
         else:  # 5GHz
-            # 5GHz WiFi band (5.150 - 5.825 GHz)
-            self.center_input.setValue(5.4875)  # Center of 5GHz band
-            self.span_input.setValue(675)      # Full 5GHz band
-            self.freqs = np.linspace(5.15e9, 5.825e9, self.trace_length)
+            self.center_input.setValue(5.250)
+            self.span_input.setValue(400)
+            self.freqs = np.linspace(5.180e9, 5.580e9, self.trace_length)
         
-        # Update WiFi mask
+        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.setup_wifi_mask()
-        
-        # Update plot axes
-        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.canvas.draw()
-        self.line_marker.remove()
-        self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
-        
-        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
-        self.ax.set_title(f"Live Spectrum - {channel} Band")
-        self.canvas.draw()
-    
+
     def start_acquisition(self):
         """
         Start spectrum acquisition with user-defined settings.
         Configures the spectrum analyzer with center frequency, span, and trigger levels.
         Sets up the plot with live trace, max hold, and WiFi standard mask.
         """
-        # Convert user inputs to proper frequency units
-        self.center_freq = self.center_input.value() * 1e9  # GHz to Hz
-        self.span = self.span_input.value() * 1e6  # MHz to Hz
-        self.max_duration = self.duration_input.value()  # seconds
+        center_freq = self.center_input.value() * 1e9
+        span = self.span_input.value() * 1e6
         
-        # Configure spectrum analyzer
-        CONFIG_SetCenterFreq_py(self.center_freq)
-        CONFIG_SetReferenceLevel_py(-60)
+        CONFIG_SetCenterFreq_py(center_freq)
         SPECTRUM_SetSettings_py(
-            span=self.span,
-            rbw=1e3,
+            startFreq=center_freq - span/2,
+            stopFreq=center_freq + span/2,
+            rbw=self.rbw_input.value() * 1e3,
             enableVBW=True,
-            vbw=10e3,
-            traceLength=self.trace_length,
-            window=SpectrumWindows.SpectrumWindow_Kaiser,
-            verticalUnit=SpectrumVerticalUnits.SpectrumVerticalUnit_dBm
+            vbw=self.vbw_input.value() * 1e3,
+            traceLength=self.trace_length_input.value(),
+            window=self.get_window_type(),
+            verticalUnit=self.get_vertical_units()
         )
-
-        # Get settings and initialize plot
-        settings = SPECTRUM_GetSettings_py()
-        self.freqs = np.linspace(settings['actualStartFreq'], settings['actualStopFreq'], self.trace_length)
+        
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
-        
-        # Initialize plot elements
-        self.ax.clear()
-        self.line_live, = self.ax.plot(self.freqs / 1e6, np.zeros_like(self.freqs), label="Live Trace")
-        self.line_max, = self.ax.plot(self.freqs / 1e6, self.max_hold, label="Max Hold", linestyle='--', color='orange')
-        
-        # Set up WiFi standard mask
-        self.setup_wifi_mask()
-        
-        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
-        self.ax.set_ylim(-130, -20)
-        self.ax.set_xlabel("Frequency (MHz)")
-        self.ax.set_ylabel("Power (dBm)")
-        self.ax.set_title("Live Spectrum with WiFi Mask")
-        self.ax.legend()
-        self.canvas.draw()
-        
-        self.start_time = time.time()
-        self.timer.start(250)
-
-        SPECTRUM_AcquireTrace_py()
-
-        settings = SPECTRUM_GetSettings_py()
-        self.freqs = np.linspace(settings['actualStartFreq'], settings['actualStopFreq'], self.trace_length)
-        self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
-        self.mask_threshold = -40
-
-        self.ax.clear()
-        self.line_live, = self.ax.plot(self.freqs / 1e6, np.zeros_like(self.freqs), label="Live Trace")
-        self.line_max, = self.ax.plot(self.freqs / 1e6, self.max_hold, label="Max Hold", linestyle='--', color='orange')
-        self.line_mask = self.ax.hlines(self.mask_threshold, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='red', linestyles='dotted', label="Mask Threshold")
-        self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
-
-        self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
-        self.ax.set_ylim(-130, -20)
-        self.ax.set_xlabel("Frequency (MHz)")
-        self.ax.set_ylabel("Power (dBm)")
-        self.ax.set_title("Live Spectrum with Max Hold & Trigger")
-        self.ax.legend()
-        self.canvas.draw()
-
-        self.start_time = time.time()
-        self.timer.start(250)
+        self.line_max.set_ydata(self.max_hold)
+        self.timer.start(100)  # Update every 100ms
 
     def stop_acquisition(self):
         """
@@ -610,62 +540,27 @@ class SpectrumAnalyzerGUI(QWidget):
         """
         Clear the max hold data.
         """
-        if self.max_hold is not None:
-            self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
-            if self.line_max:
-                self.line_max.set_ydata(self.max_hold)
-            self.canvas.draw()
+        self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
+        self.line_max.set_ydata(self.max_hold)
+        self.canvas.draw()
 
     def update_plot(self):
         """
         Update the spectrum plot with new trace data.
         Handles live trace, max hold, peak detection, WiFi mask violation checking.
         """
-        # Acquire new trace data from the spectrum analyzer
+        # Acquire new trace data
         SPECTRUM_AcquireTrace_py()
-        SPECTRUM_WaitForTraceReady_py(100)  # Wait for the trace to be ready
-        trace = SPECTRUM_GetTrace_py(trace=SpectrumTraces.SpectrumTrace1, tracePoints=self.trace_length)
+        SPECTRUM_WaitForTraceReady_py(1000)
+        trace = SPECTRUM_GetTrace_py()
 
         # Update live trace
         self.line_live.set_ydata(trace)
-        
-        # Update max hold if within duration
-        if time.time() - self.start_time <= self.max_duration:
-            self.max_hold = np.maximum(self.max_hold, trace)
-            self.line_max.set_ydata(self.max_hold)
-            
-        # Signal analysis
-        if np.any(trace > -100):  # Signal is present if any point is above -100 dBm
-            self.current_signal_level = np.max(trace)
-            peak_index = np.argmax(trace)
-            peak_freq = self.freqs[peak_index]
-            self.current_channel = self.get_channel_from_freq(peak_freq)
-            
-            # Update title with signal info
-            title = f"Live Spectrum - Signal Level: {self.current_signal_level:.1f} dBm"
-            if self.current_channel:
-                title += f" (Channel {self.current_channel})"
-            title_color = 'black'
-        else:
-            title = "No Signal Detected"
-            title_color = 'gray'
-            self.current_signal_level = None
-            self.current_channel = None
-        
-        # Check WiFi mask violations
-        violations = self.check_wifi_mask_violations(trace)
-        if violations:
-            title = "Mask Violation Detected!"
-            title_color = 'red'
-            
-            # Update mask violation indicators
-            for freq, level in violations.items():
-                # Add red markers at violation points
-                self.ax.scatter([freq/1e6], [level], color='red', zorder=10)
-        
-        self.ax.set_title(title, color=title_color)
-        self.canvas.draw()
-        
+
+        # Update max hold
+        self.max_hold = np.maximum(self.max_hold, trace)
+        self.line_max.set_ydata(self.max_hold)
+
         # Update peak information and marker
         if np.any(trace > -100):
             # Find all peaks (local maxima)
@@ -723,6 +618,16 @@ class SpectrumAnalyzerGUI(QWidget):
             for row in range(20):
                 for col in range(4):
                     self.peak_table.setItem(row, col, QTableWidgetItem("-"))
+
+        # Check for mask violations
+        violations = self.check_wifi_mask_violations(trace)
+        if violations:
+            self.ax.set_title(f"Live Spectrum with Max Hold & Trigger\nMASK VIOLATION!")
+        else:
+            self.ax.set_title("Live Spectrum with Max Hold & Trigger")
+
+        # Update plot
+        self.canvas.draw()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

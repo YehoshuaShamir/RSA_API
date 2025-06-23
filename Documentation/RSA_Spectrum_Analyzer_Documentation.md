@@ -1,0 +1,240 @@
+# RSA Spectrum Analyzer GUI Documentation
+
+## Abstract
+This document provides comprehensive technical documentation for the RSA306B Spectrum Analyzer GUI application, a Python-based graphical user interface designed for real-time spectrum analysis of WiFi signals. The application leverages the Tektronix RSA API to control and visualize spectrum data, with specific focus on 2.4GHz and 5GHz WiFi bands.
+
+## 1. Introduction
+
+### 1.1 Purpose
+The RSA Spectrum Analyzer GUI is a specialized tool designed to monitor and analyze radio frequency (RF) spectrum data, particularly targeting WiFi signals in the 2.4GHz and 5GHz bands. It provides real-time visualization of spectrum data along with advanced features for signal analysis and monitoring.
+
+### 1.2 System Overview
+The application consists of two main components:
+1. Spectrum Analysis Module
+2. Control Interface Module
+
+## 2. System Architecture
+
+### 2.1 Hardware Requirements
+- Tektronix RSA306B Spectrum Analyzer
+- Windows PC with Python 3.10 or higher
+- RSA API DLLs (located in C:\Tektronix\RSA_API\lib\x64)
+- Minimum RAM: 8GB
+- Minimum Storage: 500MB free space
+- USB 3.0 port for RSA306B connection
+
+### 2.2 Software Components
+1. **Main Application** (`test_rsa_gui.py`)
+   - PyQt5-based GUI framework (version 5.15.x)
+   - Real-time spectrum visualization using Matplotlib
+   - WiFi channel analysis
+   - Mask violation detection
+   - Signal strength categorization
+   - Peak detection algorithm
+
+2. **Testing Framework** (`tests/test_rsa_gui.py`)
+   - Pytest-based test suite (version 8.x)
+   - Automated GUI testing
+   - Mock RSA API implementation
+   - Test coverage metrics
+   - Integration testing
+   - Unit testing
+
+### 2.3 Software Dependencies
+- PyQt5 (5.15.x)
+- NumPy (1.21.x)
+- Matplotlib (3.4.x)
+- pytest (8.x)
+- rsa_api (Tektronix RSA API)
+
+## 3. Core Features
+
+### 3.1 Spectrum Analysis
+
+#### 3.1.1 Real-time Spectrum Visualization
+- Live spectrum trace display with 801 points
+- Max hold functionality with persistent storage
+- Peak level detection with color-coded visualization
+- Signal strength categorization:
+  - Strong: > -40dBm (red)
+  - Medium: -60dBm to -40dBm (yellow)
+  - Weak: ≤ -60dBm (green)
+- Real-time scrolling peak data display
+- 20-entry peak history buffer
+
+#### 3.1.2 WiFi Standard Support
+- 2.4GHz band (Channels 1-13)
+  - Center frequencies: 2412MHz to 2484MHz
+  - Channel spacing: 5MHz
+  - Default span: 83.5MHz
+- 5GHz band (Channels 36-140)
+  - Center frequencies: 5180MHz to 5825MHz
+  - Channel spacing: 20MHz
+  - Default span: 400MHz
+- Standard WiFi masks implementation with thresholds:
+  - Center channel: -40dBm
+  - Adjacent channels: -50dBm
+  - Far channels: -60dBm
+- Automatic channel violation detection
+- Channel identification based on frequency
+
+### 3.2 Control Interface
+
+#### 3.2.1 Spectrum Control Panel
+- Reference Level adjustment (-130 to 10 dBm)
+- Resolution Bandwidth (RBW) control (1-1000 kHz)
+- Video Bandwidth (VBW) control (1-1000 kHz)
+- Trace Length configuration (101-801 points)
+- Window Type selection:
+  - Rectangular
+  - Hamming
+  - Hanning
+  - Blackman
+  - Kaiser
+- Vertical Units options:
+  - dBm
+  - dBmV
+  - dBuV
+  - V
+  - W
+
+#### 3.2.2 Signal Analysis
+- Peak level detection with subcarrier resolution
+- Channel identification algorithm
+- Mask violation monitoring with real-time updates
+- Data logging with timestamp
+- Signal strength categorization
+- Multiple peak detection capability
+
+## 4. Implementation Details
+
+### 4.1 GUI Architecture
+The application utilizes PyQt5 for the graphical interface, organized into two main tabs:
+
+#### 4.1.1 Live Spectrum Tab
+- Real-time spectrum plot using Matplotlib
+- Peak information table with 20-row scrolling capability
+- Control buttons (Start, Stop, Clear)
+- WiFi channel selection with automatic frequency adjustment
+- Center frequency and span controls with validation
+- Duration control (1-120 seconds)
+
+#### 4.1.2 Spectrum Control Tab
+- Advanced spectrum analyzer settings panel
+- Reference level control with dynamic plot updates
+- Bandwidth controls with interdependent validation
+- Window type selection with preview
+- Vertical units configuration with automatic scale adjustment
+- Trace length control with frequency recalculation
+
+### 4.2 Data Processing
+- Continuous signal acquisition with 100ms refresh rate
+- Peak detection algorithm using local maxima identification
+- Mask violation analysis with channel-specific thresholds
+- Signal strength categorization using dBm thresholds
+- Timestamped data logging for peak events
+- Real-time scrolling implementation with optimized memory usage
+
+### 4.3 Algorithm Implementation
+
+#### 4.3.1 Peak Detection
+1. Signal smoothing using configurable VBW
+2. Local maxima identification
+3. Threshold-based peak validation
+4. Channel assignment based on frequency
+5. Signal strength categorization
+6. Timestamp generation
+
+#### 4.3.2 Mask Violation Detection
+1. Channel-specific threshold application
+2. Violation point identification
+3. Visual alert generation
+4. Violation logging
+5. Channel violation categorization
+
+### 4.4 Memory Management
+- Optimized peak history storage
+- Efficient plot data handling
+- Memory-efficient scrolling implementation
+- Automatic cleanup of old data
+- Resource management during acquisition
+
+## 5. Testing and Validation
+
+### 5.1 Test Suite
+The application includes a comprehensive test suite using pytest, covering:
+- GUI initialization
+- Spectrum control functionality
+- Peak detection accuracy
+- Mask violation detection
+- Signal processing algorithms
+
+### 5.2 Test Coverage
+- Reference level range testing
+- Bandwidth control verification
+- Window type validation
+- Vertical units testing
+- Peak detection accuracy
+
+## 6. Usage Instructions
+
+### 6.1 Setup
+1. Install Python 3.10 or higher
+2. Install required packages:
+   - PyQt5
+   - NumPy
+   - Matplotlib
+   - pytest
+3. Install RSA API DLLs
+4. Run the application using Python
+
+### 6.2 Basic Operation
+1. Select WiFi band (2.4GHz or 5GHz)
+2. Configure spectrum settings
+3. Start acquisition
+4. Monitor spectrum data
+5. Use control panel for advanced settings
+
+## 7. Technical Specifications
+
+### 7.1 Frequency Range
+- 2.4GHz band: 2.412GHz - 2.484GHz
+- 5GHz band: 5.180GHz - 5.825GHz
+
+### 7.2 Resolution Settings
+- Minimum RBW: 1kHz
+- Maximum RBW: 1000kHz
+- Minimum VBW: 1kHz
+- Maximum VBW: 1000kHz
+
+### 7.3 Signal Processing
+- Peak detection threshold: -100dBm
+- Mask thresholds:
+  - Center channel: -40dBm
+  - Adjacent channels: -50dBm
+  - Far channels: -60dBm
+
+## 8. Future Enhancements
+
+### 8.1 Planned Features
+1. Additional frequency bands support
+2. Enhanced signal processing algorithms
+3. Export functionality for data analysis
+4. Advanced mask customization
+5. Network integration for remote monitoring
+
+### 8.2 Research Directions
+- Implementation of machine learning algorithms for signal classification
+- Development of automated interference detection
+- Integration with other RF analysis tools
+- Real-time spectrum analysis optimization
+
+## 9. Conclusion
+The RSA Spectrum Analyzer GUI provides a powerful tool for RF spectrum analysis, particularly for WiFi signal monitoring. Its combination of real-time visualization, advanced control capabilities, and comprehensive testing framework makes it suitable for both research and practical applications in RF spectrum analysis.
+
+## References
+1. Tektronix RSA306B Spectrum Analyzer User Manual
+2. WiFi Standard Specifications (IEEE 802.11)
+3. PyQt5 Documentation
+4. NumPy Documentation
+5. Matplotlib Documentation
