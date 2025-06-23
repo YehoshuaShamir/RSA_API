@@ -389,7 +389,11 @@ class SpectrumAnalyzerGUI(QWidget):
         # Remove existing mask lines
         if hasattr(self, 'mask_lines'):
             for line in self.mask_lines:
-                line.remove()
+                try:
+                    line.remove()
+                except Exception:
+                    pass  # Already removed or not present
+            self.mask_lines = []
         
         # Create new mask lines
         self.mask_lines = []
@@ -572,8 +576,12 @@ class SpectrumAnalyzerGUI(QWidget):
         # Update plot axes
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.canvas.draw()
-        if hasattr(self, 'line_marker'):
-            self.line_marker.remove()
+        if hasattr(self, 'line_marker') and self.line_marker is not None:
+            try:
+                self.line_marker.remove()
+            except Exception:
+                pass  # Already removed or not present
+            self.line_marker = None
         self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
         
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
