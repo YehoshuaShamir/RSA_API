@@ -64,7 +64,7 @@ except ImportError:
             else:
                 return {
                     'actualStartFreq': 2.4e9,
-                    'actualStopFreq': 2.4835e9
+                    'actualStopFreq': 2.5e9
                 }
 
         @staticmethod
@@ -114,9 +114,9 @@ class SpectrumAnalyzerGUI(QWidget):
                 'mask': {
                     'channel_width': 22e6,  # 22MHz channel width
                     'thresholds': {
-                        'center': -40,  # Center of channel
-                        'adjacent': -50,  # Adjacent channels
-                        'far': -60  # Far channels
+                        'center': 10,  # Center of channel
+                        'adjacent': 0,  # Adjacent channels
+                        'far': 0  # Far channels
                     }
                 }
             },
@@ -182,19 +182,34 @@ class SpectrumAnalyzerGUI(QWidget):
         self.center_label = QLabel("Center Frequency (GHz):")
         self.center_input = QDoubleSpinBox()
         self.center_input.setRange(0, 10)
-        self.center_input.setValue(2.4415)
+        self.center_input.setValue(2.442)
+        # Use small GHz step to avoid large jumps (1 MHz)
+        self.center_input.setDecimals(6)
+        self.center_input.setSingleStep(0.001)
         
         # Span (will be updated based on channel selection)
         self.span_label = QLabel("Span (MHz):")
         self.span_input = QDoubleSpinBox()
         self.span_input.setRange(0, 1000)
-        self.span_input.setValue(83.5)
+        self.span_input.setValue(100.0)
+        # Use moderate MHz step to avoid skipping feel
+        self.span_input.setDecimals(3)
+        self.span_input.setSingleStep(5.0)
         
         # Duration (will be updated based on channel selection)
         self.duration_label = QLabel("Duration (s):")
         self.duration_input = QDoubleSpinBox()
         self.duration_input.setRange(1, 120)
         self.duration_input.setValue(30)
+
+        # Trigger level control (dBm)
+        self.trigger_label = QLabel("Trigger (dBm):")
+        self.trigger_input = QDoubleSpinBox()
+        self.trigger_input.setRange(-150, 20)
+        self.trigger_input.setDecimals(1)
+        self.trigger_input.setSingleStep(1.0)
+        self.trigger_input.setValue(-50.0)
+        self.trigger_input.valueChanged.connect(self.update_trigger_level)
 
         # Create table to display peak information
         self.peak_table = QTableWidget(3, 2)
@@ -213,6 +228,8 @@ class SpectrumAnalyzerGUI(QWidget):
         self.config_layout.addWidget(self.span_input)
         self.config_layout.addWidget(self.duration_label)
         self.config_layout.addWidget(self.duration_input)
+        self.config_layout.addWidget(self.trigger_label)
+        self.config_layout.addWidget(self.trigger_input)
         
         # Start, Stop, and Clear buttons
         self.start_button = QPushButton("Start")
@@ -231,6 +248,11 @@ class SpectrumAnalyzerGUI(QWidget):
         self.config_layout.addWidget(self.stop_button)
         self.config_layout.addWidget(self.clear_button)
         self.config_layout.addWidget(self.continue_button)
+
+        # Special one-minute test button
+        self.one_min_test_button = QPushButton("Run 1-min @2442MHz test")
+        self.one_min_test_button.clicked.connect(self.run_one_min_test)
+        self.config_layout.addWidget(self.one_min_test_button)
 
         # Create horizontal layout for plot and data display
         plot_layout = QHBoxLayout()
@@ -275,10 +297,13 @@ class SpectrumAnalyzerGUI(QWidget):
         self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)  # Default to 2.4GHz band
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
         self.mask_threshold = -45
+        self.trigger_level_dbm = -50.0
 
         self.line_live, = self.ax.plot(self.freqs / 1e6, np.zeros_like(self.freqs), label="Live Trace")
         self.line_max, = self.ax.plot(self.freqs / 1e6, self.max_hold, label="Max Hold", linestyle='--', color='orange')
         self.line_mask = self.ax.hlines(self.mask_threshold, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='red', linestyles='dotted', label="Mask Threshold")
+        # Trigger line
+        self.line_trigger = self.ax.hlines(self.trigger_level_dbm, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='magenta', linestyles='dashdot', label="Trigger")
         self.line_marker = self.ax.axvline(x=0, color='green', linestyle='dashdot', label='Peak Marker')
 
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
@@ -303,15 +328,15 @@ class SpectrumAnalyzerGUI(QWidget):
         # Resolution Bandwidth (RBW)
         self.rbw_label = QLabel("Resolution Bandwidth (kHz):")
         self.rbw_input = QDoubleSpinBox()
-        self.rbw_input.setRange(1, 1000)
-        self.rbw_input.setValue(1)
+        self.rbw_input.setRange(1, 100000)
+        self.rbw_input.setValue(10000)
         self.rbw_input.valueChanged.connect(self.update_rbw)
         
         # Video Bandwidth (VBW)
         self.vbw_label = QLabel("Video Bandwidth (kHz):")
         self.vbw_input = QDoubleSpinBox()
         self.vbw_input.setRange(1, 1000)
-        self.vbw_input.setValue(10)
+        self.vbw_input.setValue(100)
         self.vbw_input.valueChanged.connect(self.update_vbw)
         
         # Trace Length
@@ -363,12 +388,14 @@ class SpectrumAnalyzerGUI(QWidget):
         self.timer.timeout.connect(self.update_plot)
         self.start_time = None
         self.triggered = False
+        self.special_mode = False
+        self.special_target_freq_hz = None
         
         # Store default settings
         self.default_settings = {
-            'ref_level': -60,
-            'rbw': 1,
-            'vbw': 10,
+            'ref_level': 0,
+            'rbw': 10000,
+            'vbw': 100,
             'trace_length': 801,
             'window': 'Kaiser',
             'units': 'dBm'
@@ -376,6 +403,42 @@ class SpectrumAnalyzerGUI(QWidget):
         
         # Default channel settings
         self.current_channel = "2.4GHz"
+
+    def update_trigger_level(self, value):
+        """
+        Update trigger level and redraw the trigger line to span current x-limits.
+        """
+        try:
+            self.trigger_level_dbm = float(value)
+        except Exception:
+            self.trigger_level_dbm = -50.0
+        # Redraw trigger line
+        try:
+            if hasattr(self, 'line_trigger') and self.line_trigger is not None:
+                try:
+                    self.line_trigger.remove()
+                except Exception:
+                    pass
+            self.line_trigger = self.ax.hlines(self.trigger_level_dbm, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='magenta', linestyles='dashdot', label="Trigger")
+            self.ax.legend()
+            self.canvas.draw()
+        except Exception:
+            pass
+
+    def draw_trigger_line(self):
+        """
+        Draw or update the trigger line at the current trigger level across the plot span.
+        """
+        try:
+            if hasattr(self, 'line_trigger') and self.line_trigger is not None:
+                try:
+                    self.line_trigger.remove()
+                except Exception:
+                    pass
+            self.line_trigger = self.ax.hlines(self.trigger_level_dbm, self.freqs[0] / 1e6, self.freqs[-1] / 1e6, colors='magenta', linestyles='dashdot', label="Trigger")
+            self.ax.legend()
+        except Exception:
+            pass
 
     def setup_wifi_mask(self):
         """
@@ -561,9 +624,9 @@ class SpectrumAnalyzerGUI(QWidget):
 
         if channel == "2.4GHz":
             # 2.4GHz WiFi band (2.400 - 2.4835 GHz)
-            self.center_input.setValue(2.4415)  # Center of 2.4GHz band
-            self.span_input.setValue(83.5)     # Full 2.4GHz band
-            self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)
+            self.center_input.setValue(2.442)  # Center of 2.4GHz band
+            self.span_input.setValue(200)     # Full 2.4GHz band
+            self.freqs = np.linspace(2.4e9, 2.5e9, self.trace_length)
         else:  # 5GHz
             # 5GHz WiFi band (5.150 - 5.825 GHz)
             self.center_input.setValue(5.4875)  # Center of 5GHz band
@@ -586,6 +649,8 @@ class SpectrumAnalyzerGUI(QWidget):
         
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.ax.set_title(f"Live Spectrum - {channel} Band")
+        # Redraw trigger line for new span
+        self.draw_trigger_line()
         self.canvas.draw()
 
     def start_acquisition(self):
@@ -601,10 +666,26 @@ class SpectrumAnalyzerGUI(QWidget):
         
         # Configure spectrum analyzer
         CONFIG_SetCenterFreq_py(self.center_freq)
-        CONFIG_SetReferenceLevel_py(-60)
+        # Use current UI reference level unless special mode overrides it beforehand
+        CONFIG_SetReferenceLevel_py(self.ref_level_input.value())
+        # Force attenuation to 0 dB
+        try:
+            # Disable auto attenuation if supported
+            CONFIG_SetAutoAttenuationEnable_py(False)
+        except NameError:
+            pass
+        except Exception:
+            pass
+        try:
+            # Set RF attenuator to 0 dB if supported
+            CONFIG_SetRFAttenuator_py(0)
+        except NameError:
+            pass
+        except Exception:
+            pass
         SPECTRUM_SetSettings_py(
             span=self.span,
-            rbw=1e3,
+            rbw=self.rbw_input.value() * 1e3,
             enableVBW=True,
             vbw=10e3,
             traceLength=self.trace_length,
@@ -612,11 +693,12 @@ class SpectrumAnalyzerGUI(QWidget):
             verticalUnit=SpectrumVerticalUnits.SpectrumVerticalUnit_dBm
         )
 
-        # Always set self.freqs based on selected band, not what the device returns
-        if self.current_channel == "2.4GHz":
-            self.freqs = np.linspace(2.4e9, 2.4835e9, self.trace_length)
-        else:
-            self.freqs = np.linspace(5.15e9, 5.825e9, self.trace_length)
+        # Set frequency axis based on current center/span
+        self.freqs = np.linspace(
+            self.center_freq - self.span / 2,
+            self.center_freq + self.span / 2,
+            self.trace_length
+        )
         self.max_hold = np.full(self.trace_length, -150.0, dtype=np.float32)
         
         # Initialize plot elements
@@ -626,6 +708,8 @@ class SpectrumAnalyzerGUI(QWidget):
         
         # Set up WiFi standard mask
         self.setup_wifi_mask()
+        # Draw trigger line
+        self.draw_trigger_line()
         
         self.ax.set_xlim(self.freqs[0] / 1e6, self.freqs[-1] / 1e6)
         self.ax.set_ylim(-130, -20)
@@ -636,6 +720,7 @@ class SpectrumAnalyzerGUI(QWidget):
         self.canvas.draw()
         
         self.start_time = time.time()
+        self.triggered = False
         self.timer.start(250)
 
 
@@ -645,6 +730,34 @@ class SpectrumAnalyzerGUI(QWidget):
         """
         self.timer.start(250)
         self.continue_button.setEnabled(False)
+
+    def run_one_min_test(self):
+        """
+        Configure for a 1-minute measurement at 2442 MHz with:
+        - Span = 200 MHz
+        - RBW = 10 MHz
+        - Reference Level = 0 dBm
+        After 60 seconds, show the max power at the nearest bin to 2442 MHz.
+        """
+        # Stop any ongoing acquisition
+        try:
+            self.timer.stop()
+        except Exception:
+            pass
+
+        # Set UI controls to requested settings so the user sees them reflected
+        self.center_input.setValue(2.442)     # GHz
+        self.span_input.setValue(200.0)       # MHz
+        self.rbw_input.setValue(10000.0)      # kHz -> 10 MHz
+        self.ref_level_input.setValue(0.0)    # dBm
+        self.duration_input.setValue(60.0)    # seconds
+
+        # Enable special mode so update_plot will compute and report result
+        self.special_mode = True
+        self.special_target_freq_hz = 2442e6
+
+        # Start acquisition with these settings
+        self.start_acquisition()
 
     def stop_acquisition(self):
         """
@@ -676,9 +789,36 @@ class SpectrumAnalyzerGUI(QWidget):
         self.line_live.set_ydata(trace)
         
         # Update max hold if within duration
-        if time.time() - self.start_time <= self.max_duration:
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        if elapsed <= self.max_duration:
             self.max_hold = np.maximum(self.max_hold, trace)
             self.line_max.set_ydata(self.max_hold)
+        else:
+            # If special 1-min test is active, compute and show result once
+            if self.special_mode and self.special_target_freq_hz is not None:
+                try:
+                    import numpy as _np
+                    bin_idx = int(_np.argmin(_np.abs(self.freqs - self.special_target_freq_hz)))
+                    bin_freq_mhz = self.freqs[bin_idx] / 1e6
+                    peak_at_bin = float(self.max_hold[bin_idx])
+                except Exception:
+                    bin_freq_mhz = float(self.special_target_freq_hz / 1e6)
+                    peak_at_bin = None
+                self.timer.stop()
+                try:
+                    from PyQt5.QtWidgets import QMessageBox
+                    msg = QMessageBox(self)
+                    msg.setWindowTitle("1-min Result @2442 MHz")
+                    if peak_at_bin is not None and _np.isfinite(peak_at_bin):
+                        msg.setText(f"Max power at ~{bin_freq_mhz:.3f} MHz: {peak_at_bin:.2f} dBm")
+                    else:
+                        msg.setText("Measurement failed to compute a valid result.")
+                    msg.exec_()
+                except Exception:
+                    print(f"[RESULT] Max power at ~{bin_freq_mhz:.3f} MHz: {peak_at_bin} dBm")
+                # Reset special mode
+                self.special_mode = False
+                self.special_target_freq_hz = None
             
         # Signal analysis
         print(f"[DEBUG] Band: {self.current_channel}, Freq range: {self.freqs[0]/1e6:.1f}-{self.freqs[-1]/1e6:.1f} MHz")
@@ -700,10 +840,20 @@ class SpectrumAnalyzerGUI(QWidget):
             title_color = 'gray'
             self.current_signal_level = None
             self.current_channel = None
+
+        # Trigger detection: pause on crossing trigger level
+        try:
+            if not getattr(self, 'triggered', False) and np.any(trace >= self.trigger_level_dbm):
+                self.triggered = True
+                self.ax.set_title(f"Triggered at {self.trigger_level_dbm:.1f} dBm")
+                self.timer.stop()
+                self.continue_button.setEnabled(True)
+        except Exception:
+            pass
         
         # Check for mask violations
         violations = self.check_wifi_mask_violations(trace)
-        if violations:
+        if False:
             self.ax.set_title(f"Live Spectrum with Max Hold & Trigger\nMASK VIOLATION!")
             self.timer.stop()  # Pause acquisition on violation
             self.continue_button.setEnabled(True)
